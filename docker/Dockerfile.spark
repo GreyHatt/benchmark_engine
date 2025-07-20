@@ -1,0 +1,26 @@
+FROM bitnami/spark:3.3.0
+
+USER root
+
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements/ /tmp/requirements/
+RUN pip install --no-cache-dir -r /tmp/requirements/base.txt
+
+ENV PYSPARK_PYTHON=/opt/venv/bin/python3
+ENV PYTHONPATH="${SPARK_HOME}/python:${SPARK_HOME}/python/lib/py4j-0.10.9.5-src.zip:${PYTHONPATH}"
+
+WORKDIR /app
+
+COPY src/ /app/
+
+EXPOSE 4040 7077 8080 8081
+
+CMD ["/bin/bash"]
