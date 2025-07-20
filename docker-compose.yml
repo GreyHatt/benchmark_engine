@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: benchmark-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      - spark-master
+      - spark-worker
+    networks:
+      - benchmark-network
+
+  spark-master:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.spark
+    container_name: spark-master
+    hostname: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+      - "4040:4040"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    volumes:
+      - ./src:/app
+      - ./data:/app/data
+    networks:
+      - benchmark-network
+
+  spark-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.spark
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_DRIVER_MEMORY=1g
+      - SPARK_EXECUTOR_MEMORY=1g
+    volumes:
+      - ./src:/app
+      - ./data:/app/data
+    networks:
+      - benchmark-network
+
+  visualization:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: benchmark-viz
+    command: streamlit run visualization/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src:/app
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    networks:
+      - benchmark-network
+
+networks:
+  benchmark-network:
+    driver: bridge
