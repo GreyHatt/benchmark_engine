@@ -1,9 +1,3 @@
-"""
-Query execution metrics collection and analysis.
-
-This module provides functionality to collect, analyze, and compare performance
-metrics from query executions across different engines.
-"""
 import time
 import psutil
 import threading

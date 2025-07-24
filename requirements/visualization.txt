@@ -1,6 +1,0 @@
-streamlit>=1.10.0
-plotly>=5.4.0
-matplotlib>=3.4.3
-seaborn>=0.11.2
-streamlit-aggrid>=0.3.3
-streamlit-plotly-events>=0.0.5
