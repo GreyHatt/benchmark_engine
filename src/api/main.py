@@ -1,84 +1,123 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Dict, Any
-import logging
+from pathlib import Path
+from datetime import datetime
+from query.factory import QueryExecutorFactory
+from query.tpch_queries import get_query, get_all_queries
+import json
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = FastAPI(
-    title="Big Data Benchmarking Engine",
-    description="API for benchmarking query performance across different engines",
-    version="0.1.0"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class BenchmarkRequest(BaseModel):
-    query: str
-    engine: str  # 'spark', 'duckdb', or 'hybrid'
-    scale_factor: float = 1.0
-
+# Update the BenchmarkResult model
 class BenchmarkResult(BaseModel):
     query: str
     engine: str
     execution_time: float
     status: str
     metrics: Dict[str, Any] = {}
+    result_validation: Optional[Dict[str, Any]] = None
+    timestamp: str = datetime.utcnow().isoformat()
+    spark_result: Optional[Dict[str, Any]] = None
+    duckdb_result: Optional[Dict[str, Any]] = None
+    validation_result: Optional[Dict[str, Any]] = None
+    comparison_metrics: Optional[Dict[str, Any]] = None
 
-@app.get("/")
-async def root():
-    """Root endpoint that provides API information."""
-    return {
-        "name": "Big Data Benchmarking Engine",
-        "version": "0.1.0",
-        "documentation": "/docs"
-    }
+# Add this near the top of the file
+DATA_DIR = Path("./data")  # Update this path as needed
 
+# Update the run_benchmark endpoint
 @app.post("/benchmark/run", response_model=BenchmarkResult)
 async def run_benchmark(request: BenchmarkRequest):
     """Execute a benchmark with the specified query and engine."""
     try:
-        # TODO: Implement actual benchmark execution
         logger.info(f"Running benchmark with engine: {request.engine}")
         
-        return BenchmarkResult(
-            query=request.query,
-            engine=request.engine,
-            execution_time=0.0,
-            status="success",
-            metrics={"message": "Benchmark execution not yet implemented"}
-        )
+        # Get the query (support both direct SQL and TPC-H query IDs)
+        query = request.query
+        if request.query.startswith("q") and request.query[1:].isdigit():
+            query = get_query(request.query)
+            if not query:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Query {request.query} not found"
+                )
+        
+        # Initialize the appropriate executor
+        factory = QueryExecutorFactory()
+        
+        if request.engine.lower() == 'hybrid':
+            executor = factory.create_hybrid_executor(
+                data_dir=DATA_DIR,
+                spark_kwargs={"app_name": "TPC-H Benchmark (Spark)"},
+                duckdb_kwargs={"memory_db": True}
+            )
+        else:
+            executor = factory.create_executor(
+                engine=request.engine.lower(),
+                data_dir=DATA_DIR,
+                app_name=f"TPC-H Benchmark ({request.engine})"
+            )
+        
+        # Execute the query
+        with executor:
+            result = executor.execute_query(query, request.query)
+            
+            # For hybrid mode, add validation results
+            if request.engine.lower() == 'hybrid' and result.spark and result.duckdb:
+                validation_result = {
+                    "spark_time": result.spark.execution_time,
+                    "duckdb_time": result.duckdb.execution_time,
+                    "faster_engine": result.metrics.get('faster_engine', 'unknown'),
+                    "speedup": result.metrics.get('speedup', 1.0)
+                }
+                
+                # Add validation details if both executions were successful
+                if result.spark.success and result.duckdb.success:
+                    is_valid = result.spark.validate_results(result.duckdb)
+                    validation_result.update({
+                        "validation_passed": is_valid,
+                        "validation_errors": result.spark.validation_errors
+                    })
+                
+                result.metrics["comparison"] = validation_result
+            
+            # Prepare the response
+            return BenchmarkResult(
+                query=request.query,
+                engine=request.engine,
+                execution_time=result.execution_time,
+                status="success" if result.success else "error",
+                metrics=result.metrics,
+                result_validation=validation_result if request.engine.lower() == 'hybrid' else None,
+                spark_result=result.spark.to_dict() if hasattr(result, 'spark') else None,
+                duckdb_result=result.duckdb.to_dict() if hasattr(result, 'duckdb') else None,
+                validation_result=validation_result if request.engine.lower() == 'hybrid' else None,
+                comparison_metrics=result.metrics.get('comparison') if request.engine.lower() == 'hybrid' else None
+            )
+            
     except Exception as e:
-        logger.error(f"Error running benchmark: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error running benchmark: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "type": type(e).__name__,
+                "traceback": str(traceback.format_exc())
+            }
+        )
 
+# Update the list_available_queries endpoint
 @app.get("/benchmark/queries")
 async def list_available_queries():
     """List all available TPC-H benchmark queries."""
-    # TODO: Implement actual query listing
+    queries = get_all_queries()
     return {
         "queries": [
-            {"id": "q1", "name": "Pricing Summary Report"},
-            {"id": "q3", "name": "Shipping Priority"},
-            {"id": "q6", "name": "Forecast Revenue Change"},
-            # Add more TPC-H queries
+            {
+                "id": qid,
+                "name": q.split('\n')[0].strip('-- ').strip(),
+                "description": '\n'.join(
+                    line.strip('-- ') 
+                    for line in q.split('\n')[1:] 
+                    if line.strip().startswith('--')
+                ).strip()
+            }
+            for qid, q in queries.items()
         ]
     }
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for monitoring."""
-    return {"status": "healthy"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
