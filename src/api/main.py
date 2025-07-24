@@ -1,10 +1,25 @@
+from fastapi import FastAPI, HTTPException
 from pathlib import Path
 from datetime import datetime
-from query.factory import QueryExecutorFactory
-from query.tpch_queries import get_query, get_all_queries
+from pydantic import BaseModel
+from typing import Any, Dict, List, Optional, Union
+from src.query.factory import QueryExecutorFactory
+from src.query.tpch_queries import get_query, get_all_queries
 import json
 
-# Update the BenchmarkResult model
+app = FastAPI(
+    title="TPC-H Benchmark API",
+    description="API for running TPC-H benchmarks",
+    version="1.0.0"
+)
+
+class BenchmarkRequest(BaseModel):
+    query_name: str
+    engine: str
+    scale_factor: float = 1.0
+    parameters: Optional[Dict[str, Any]] = None
+    validate_results: bool = False
+
 class BenchmarkResult(BaseModel):
     query: str
     engine: str
@@ -19,7 +34,7 @@ class BenchmarkResult(BaseModel):
     comparison_metrics: Optional[Dict[str, Any]] = None
 
 # Add this near the top of the file
-DATA_DIR = Path("./data")  # Update this path as needed
+DATA_DIR = Path("./.data")
 
 # Update the run_benchmark endpoint
 @app.post("/benchmark/run", response_model=BenchmarkResult)

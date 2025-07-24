@@ -1,0 +1,15 @@
+# Ignore models directory
+__pycache__
+*.pyc
+.git
+.gitignore
+.env
+.venv
+venv/
+*.tar.gz
+*.tgz
+tests/
+.pytest_cache/
+.coverage.*
+logs/
+*.log
