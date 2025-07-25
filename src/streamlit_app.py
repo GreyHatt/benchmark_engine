@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # API configuration
-API_BASE_URL = "http://localhost:8000/api"
+API_BASE_URL = "http://localhost:8000/benchmark"
 
 # Custom CSS for better styling
 st.markdown("""
@@ -45,31 +45,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def get_queries() -> List[Dict]:
-    """Fetch available queries from the API."""
-    try:
-        response = requests.get(f"{API_BASE_URL}/queries")
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching queries: {str(e)}")
-        return []
-
-def get_engines() -> List[str]:
-    """Fetch available query engines from the API."""
-    try:
-        response = requests.get(f"{API_BASE_URL}/engines")
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching engines: {str(e)}")
-        return ["spark", "duckdb", "hybrid"]  # Fallback
-
 def run_benchmark(query_id: str, engine: str, scale_factor: float = 1.0, parameters: Optional[Dict] = None) -> Optional[str]:
     """Run a benchmark and return the benchmark ID."""
     try:
         response = requests.post(
-            f"{API_BASE_URL}/benchmark/run",
+            f"{API_BASE_URL}/run",
             json={
                 "query_id": query_id,
                 "engine": engine,
@@ -225,39 +205,114 @@ def display_comparison_metrics(metrics: Dict) -> None:
         if "time_difference" in metrics:
             st.metric("Time Difference", f"{metrics['time_difference']:.4f} seconds")
 
+def load_queries() -> Optional[Dict]:
+    """Load queries from the API."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/queries")
+        response.raise_for_status()
+        data = response.json()
+        if data:
+            st.session_state.queries = data
+            st.session_state.queries_loaded = True
+        return data
+    except Exception as e:
+        st.error(f"Error loading queries: {str(e)}")
+        return None
+
+def load_engines() -> Optional[List[str]]:
+    """Load engines from the API."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/engines")
+        response.raise_for_status()
+        data = response.json()
+        if data:
+            st.session_state.engines = data
+            st.session_state.engines_loaded = True
+        return data
+    except Exception as e:
+        st.error(f"Error loading engines: {str(e)}")
+        return None
+
 def main():
     """Main Streamlit application."""
     st.title("Big Data Benchmarking Engine")
     st.markdown("Compare query performance across different execution engines.")
     
-    # Sidebar for benchmark configuration
+    # Initialize session state
+    if 'queries_loaded' not in st.session_state:
+        st.session_state.queries_loaded = False
+    if 'engines_loaded' not in st.session_state:
+        st.session_state.engines_loaded = False
+    
     with st.sidebar:
         st.header("Benchmark Configuration")
         
-        # Query selection
-        queries = get_queries()
-        query_options = {q["id"]: f"{q['id']}: {q.get('description', 'No description')}" for q in queries}
-        selected_query = st.selectbox(
-            "Select Query",
-            options=list(query_options.keys()),
-            format_func=lambda x: query_options[x]
-        )
+        # Add load buttons with clear descriptions
+        if st.button("Load Queries (GET /queries)"):
+            load_queries()
         
-        # Display query details
-        if selected_query:
-            query_info = next((q for q in queries if q["id"] == selected_query), None)
-            if query_info:
-                st.write("**Description:**", query_info.get("description", "No description"))
-                st.write("**Category:**", query_info.get("category", "N/A"))
-                
-                # Display parameters if any
-                if "parameters" in query_info and query_info["parameters"]:
-                    st.write("**Parameters:**")
-                    for param, default in query_info["parameters"].items():
-                        st.text_input(f"{param} (default: {default})", value=default)
+        if st.button("Load Engines (GET /engines)"):
+            load_engines()
+        
+        st.markdown("---")
+        
+        # Check if both queries and engines are loaded
+        if not st.session_state.get('queries_loaded') or not st.session_state.get('engines_loaded'):
+            st.info("Please load both queries and engines to continue.")
+            return
+        
+        # Query selection
+        queries_data = st.session_state.queries
+        if queries_data and "queries" in queries_data:
+            queries = queries_data["queries"]
+            query_options = {q["id"]: q.get("name", f"Query {q['id']}") for q in queries}
+            
+            st.markdown("""
+                <style>
+                    .stSelectbox div[data-baseweb="select"] {
+                        max-width: 100%;
+                    }
+                    .stSelectbox div[data-baseweb="select"] > div {
+                        white-space: normal;
+                        max-width: 100%;
+                    }
+                    .stSelectbox div[data-baseweb="select"] ul {
+                        max-width: 100%;
+                    }
+                    .stSelectbox div[data-baseweb="select"] li {
+                        white-space: normal;
+                        max-width: 100%;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            selected_query_id = st.selectbox(
+                "Select Query",
+                options=list(query_options.keys()),
+                format_func=lambda x: query_options[x],
+                help="Select a query to run"
+            )
+            
+            if selected_query_id:
+                query_info = next((q for q in queries if q["id"] == selected_query_id), None)
+                if query_info:
+                    st.write("**Query ID:**", query_info["id"])
+                    st.write("**Description:**", query_info.get("description", "No description"))
+                    
+                    if "parameters" in query_info and query_info["parameters"]:
+                        st.write("**Parameters:**")
+                        for param, default in query_info["parameters"].items():
+                            st.text_input(f"{param} (default: {default})", value=default)
+        else:
+            st.warning("No queries available. Please check the API connection and try again.")
+            return
         
         # Engine selection
-        engines = get_engines()
+        engines = st.session_state.engines
+        if not engines:
+            st.error("Failed to load engines. Please check the API connection and try again.")
+            return
+            
         selected_engine = st.selectbox("Execution Engine", engines)
         
         # Scale factor
@@ -267,41 +322,37 @@ def main():
             max_value=10.0,
             value=1.0,
             step=0.1,
-            help="TPC-H scale factor for the dataset"
+            help="Scale factor for the benchmark data"
         )
         
         # Run benchmark button
         if st.button("Run Benchmark", type="primary"):
             with st.spinner("Running benchmark..."):
                 benchmark_id = run_benchmark(
-                    query_id=selected_query,
+                    query_id=selected_query_id,
                     engine=selected_engine,
                     scale_factor=scale_factor
                 )
                 
                 if benchmark_id:
-                    # Store benchmark ID in session state
                     if "benchmark_history" not in st.session_state:
                         st.session_state.benchmark_history = []
                     st.session_state.benchmark_history.insert(0, benchmark_id)
                     st.session_state.current_benchmark = benchmark_id
                     st.rerun()
     
-    # Main content area
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        # Display current benchmark results
         if "current_benchmark" in st.session_state:
             display_benchmark_results(st.session_state.current_benchmark)
         else:
             st.info("Configure and run a benchmark to see results.")
     
     with col2:
-        # Display benchmark history
         if "benchmark_history" in st.session_state and st.session_state.benchmark_history:
             st.write("### Recent Benchmarks")
-            for bid in st.session_state.benchmark_history[:5]:  # Show last 5 benchmarks
+            for bid in st.session_state.benchmark_history[:5]:
                 if st.button(f"Benchmark: {bid[:8]}...", key=f"btn_{bid}"):
                     st.session_state.current_benchmark = bid
                     st.rerun()
@@ -313,11 +364,9 @@ def display_benchmark_results(benchmark_id: str) -> None:
         st.error(f"Could not load results for benchmark {benchmark_id}")
         return
     
-    # Display benchmark header
     status_emoji = "✅" if result.get("status") == "completed" else "⏳"
     st.header(f"{status_emoji} Benchmark Results")
     
-    # Basic info
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Query", result.get("query_id", "N/A"))
@@ -326,43 +375,33 @@ def display_benchmark_results(benchmark_id: str) -> None:
     with col3:
         st.metric("Status", result.get("status", "unknown").capitalize())
     
-    # Execution time
     if "execution_time" in result and result["execution_time"] is not None:
         st.metric("Execution Time", f"{result['execution_time']:.4f} seconds")
     
-    # Display results based on engine type
     if result.get("engine") == "hybrid":
-        # Hybrid mode results
         st.write("### Hybrid Execution Results")
         
-        # Comparison metrics
         if "comparison_metrics" in result:
             display_comparison_metrics(result["comparison_metrics"])
         
-        # Spark results
         if "spark_result" in result:
             with st.expander("Spark Execution Details", expanded=False):
                 display_engine_results(result["spark_result"])
         
-        # DuckDB results
         if "duckdb_result" in result:
             with st.expander("DuckDB Execution Details", expanded=False):
                 display_engine_results(result["duckdb_result"])
         
-        # Validation results
         if "validation_result" in result:
             display_validation_results(result["validation_result"])
     else:
-        # Single engine results
         engine_result = result.get("spark_result") or result.get("duckdb_result")
         if engine_result:
             display_engine_results(engine_result)
         
-        # Show validation results if available
         if "validation_result" in result:
             display_validation_results(result["validation_result"])
     
-    # Show raw JSON for debugging
     with st.expander("Raw Results"):
         st.json(result)
 
@@ -371,7 +410,6 @@ def display_engine_results(engine_result: Dict) -> None:
     if not engine_result:
         return
     
-    # Basic metrics
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Execution Time", f"{engine_result.get('execution_time', 0):.4f} seconds")
@@ -381,19 +419,15 @@ def display_engine_results(engine_result: Dict) -> None:
         status = "success" if engine_result.get("success", False) else "error"
         st.metric("Status", status.capitalize())
     
-    # Display error if any
     if "error" in engine_result and engine_result["error"]:
         st.error(f"Error: {engine_result['error']}")
     
-    # Display system metrics
     if "system_metrics" in engine_result:
         display_system_metrics(engine_result["system_metrics"])
     
-    # Display detailed metrics
     if "metrics" in engine_result:
         display_metrics(engine_result["metrics"])
     
-    # Display query plan if available
     if "query_plan" in engine_result and engine_result["query_plan"]:
         with st.expander("Query Plan"):
             st.code(engine_result["query_plan"], language="sql")
