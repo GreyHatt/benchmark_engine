@@ -23,7 +23,6 @@ app = FastAPI(
 class BenchmarkRequest(BaseModel):
     query_id: str
     engine: str
-    scale_factor: float = 1.0
     parameters: Optional[Dict[str, Any]] = None
     validate_results: bool = False
 
@@ -59,72 +58,40 @@ async def run_benchmark(request: BenchmarkRequest):
     try:
         logger.info(f"Running benchmark with engine: {request.engine}")
         
+        # Get the data directory and check if data exists
+        data_dir = Path("./data")
+        if not data_dir.exists() or not any(data_dir.glob("*.tbl")):
+            raise HTTPException(
+                status_code=400,
+                detail="TPC-H data not found. Please generate the data first."
+            )
+            
         query = request.query_id
         if request.query_id.startswith("q") and request.query_id[1:].isdigit():
-            query = get_query(request.query_id)
-            if not query:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Query {request.query_id} not found"
-                )
-        
-        factory = QueryExecutorFactory()
-        
-        if request.engine.lower() == 'hybrid':
-            executor = factory.create_hybrid_executor(
-                data_dir=DATA_DIR,
-                spark_kwargs={"app_name": "TPC-H Benchmark (Spark)"},
-                duckdb_kwargs={"memory_db": True}
-            )
-        else:
-            executor = factory.create_executor(
-                engine=request.engine.lower(),
-                data_dir=DATA_DIR,
-                app_name=f"TPC-H Benchmark ({request.engine})"
-            )
-        
+            query = f"q{int(request.query_id[1:])}"
+
+        # Initialize the query executor
+        executor = QueryExecutorFactory.create_executor(
+            engine=request.engine,
+            data_dir=str(data_dir.absolute())
+        )
+
+        # Execute the query
         with executor:
-            result = executor.execute_query(query, request.query_id)
-            
-            if request.engine.lower() == 'hybrid' and result.spark and result.duckdb:
-                validation_result = {
-                    "spark_time": result.spark.execution_time,
-                    "duckdb_time": result.duckdb.execution_time,
-                    "faster_engine": result.metrics.get('faster_engine', 'unknown'),
-                    "speedup": result.metrics.get('speedup', 1.0)
-                }
-                
-                if result.spark.success and result.duckdb.success:
-                    is_valid = result.spark.validate_results(result.duckdb)
-                    validation_result.update({
-                        "validation_passed": is_valid,
-                        "validation_errors": result.spark.validation_errors
-                    })
-                
-                result.metrics["comparison"] = validation_result
-            
-            return BenchmarkResult(
-                query_id=request.query_id,
-                engine=request.engine,
-                execution_time=result.execution_time,
-                status="success" if result.success else "error",
-                metrics=result.metrics,
-                result_validation=validation_result if request.engine.lower() == 'hybrid' else None,
-                spark_result=result.spark.to_dict() if hasattr(result, 'spark') else None,
-                duckdb_result=result.duckdb.to_dict() if hasattr(result, 'duckdb') else None,
-                validation_result=validation_result if request.engine.lower() == 'hybrid' else None,
-                comparison_metrics=result.metrics.get('comparison') if request.engine.lower() == 'hybrid' else None
+            result = executor.execute_query(
+                query_id=query,
+                parameters=request.parameters or {},
+                validate=request.validate_results
             )
-            
+
+        return result
+
     except Exception as e:
-        logger.error(f"Error running benchmark: {str(e)}", exc_info=True)
+        logger.error(f"Error running benchmark: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": str(e),
-                "type": type(e).__name__,
-                "traceback": str(traceback.format_exc())
-            }
+            detail=f"Error running benchmark: {str(e)}"
         )
 
 @app.get("/benchmark/queries")
@@ -152,7 +119,7 @@ async def list_engines():
     """List all available query engines."""
     return ["spark", "duckdb", "hybrid"]
 
-@app.post("/data/generate", response_model=DataGenerationResponse)
+@app.post("/benchmark/data/generate", response_model=DataGenerationResponse)
 async def generate_data(request: DataGenerationRequest):
     """
     Generate TPC-H benchmark data with the specified scale factor.
@@ -162,9 +129,7 @@ async def generate_data(request: DataGenerationRequest):
         force: If True, regenerate data even if it already exists
     """
     try:
-        # Ensure data directory exists
-        data_dir = Path("./data")
-        data_dir.mkdir(parents=True, exist_ok=True)
+        data_dir = Path("/app/data")
         
         # Generate data
         logger.info(f"Generating TPC-H data with scale factor {request.scale_factor}")
