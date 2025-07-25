@@ -80,9 +80,6 @@ def check_tpch_data() -> DataStatusResponse:
         elif exists:
             total_size += table_file.stat().st_size
     
-    print(tables_status)
-    print(missing_tables)
-    
     return DataStatusResponse(
         data_exists=all(tables_status.values()),
         data_directory=str(data_dir.absolute()),
@@ -180,7 +177,7 @@ async def list_available_queries():
 @app.get("/benchmark/engines")
 async def list_engines():
     """List all available query engines."""
-    return ["spark", "duckdb", "hybrid"]
+    return ["spark", "duckdb"]
 
 @app.get("/benchmark/data/status", response_model=DataStatusResponse)
 async def get_data_status():
