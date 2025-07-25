@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class DataLoader:
     """Base class for data loaders."""
     
-    def __init__(self, data_dir: str = "./data"):
+    def __init__(self, data_dir: str = "/app/data"):
         """
         Initialize the data loader.
         
@@ -31,7 +31,7 @@ class DataLoader:
 class SparkDataLoader(DataLoader):
     """Load TPC-H data into Spark."""
     
-    def __init__(self, spark: SparkSession, data_dir: str = "./data"):
+    def __init__(self, spark: SparkSession, data_dir: str = "/app/data"):
         """
         Initialize the Spark data loader.
         
@@ -122,7 +122,7 @@ class SparkDataLoader(DataLoader):
 class DuckDBDataLoader(DataLoader):
     """Load TPC-H data into DuckDB."""
     
-    def __init__(self, conn: Optional[duckdb.DuckDBPyConnection] = None, data_dir: str = "./data"):
+    def __init__(self, conn: Optional[duckdb.DuckDBPyConnection] = None, data_dir: str = "/app/data"):
         """
         Initialize the DuckDB data loader.
         

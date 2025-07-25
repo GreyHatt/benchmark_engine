@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     make \
+    cmake \
+    libpq-dev \
+    maven \
     && rm -rf /var/lib/apt/lists/*
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
@@ -31,9 +34,9 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-RUN apt-get remove -y gcc python3-dev && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+# RUN apt-get remove -y gcc python3-dev && \
+#     apt-get autoremove -y && \
+#     rm -rf /var/lib/apt/lists/*
 
 COPY . .
 

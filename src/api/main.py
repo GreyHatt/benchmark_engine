@@ -50,7 +50,46 @@ class DataGenerationResponse(BaseModel):
     generated_files: Optional[List[str]] = None
     error: Optional[str] = None
 
-DATA_DIR = Path("./.data")
+class DataStatusResponse(BaseModel):
+    data_exists: bool
+    data_directory: str
+    tables: Dict[str, bool]
+    missing_tables: List[str]
+    total_size_mb: float
+
+DATA_DIR = Path("/app/data")
+
+def check_tpch_data() -> DataStatusResponse:
+    """Check if TPC-H data files exist and return their status."""
+    data_dir = Path(DATA_DIR)
+    required_tables = [
+        'part', 'supplier', 'partsupp', 'customer',
+        'orders', 'lineitem', 'nation', 'region'
+    ]
+    
+    tables_status = {}
+    missing_tables = []
+    total_size = 0
+    
+    for table in required_tables:
+        table_file = data_dir / f"{table}.tbl"
+        exists = table_file.exists()
+        tables_status[table] = exists
+        if not exists:
+            missing_tables.append(table)
+        elif exists:
+            total_size += table_file.stat().st_size
+    
+    print(tables_status)
+    print(missing_tables)
+    
+    return DataStatusResponse(
+        data_exists=all(tables_status.values()),
+        data_directory=str(data_dir.absolute()),
+        tables=tables_status,
+        missing_tables=missing_tables,
+        total_size_mb=round(total_size / (1024 * 1024), 2)  # Convert to MB
+    )
 
 @app.post("/benchmark/run", response_model=BenchmarkResult)
 async def run_benchmark(request: BenchmarkRequest):
@@ -59,7 +98,7 @@ async def run_benchmark(request: BenchmarkRequest):
         logger.info(f"Running benchmark with engine: {request.engine}")
         
         # Get the data directory and check if data exists
-        data_dir = Path("./data")
+        data_dir = Path(DATA_DIR)
         if not data_dir.exists() or not any(data_dir.glob("*.tbl")):
             raise HTTPException(
                 status_code=400,
@@ -119,6 +158,21 @@ async def list_engines():
     """List all available query engines."""
     return ["spark", "duckdb", "hybrid"]
 
+@app.get("/benchmark/data/status", response_model=DataStatusResponse)
+async def get_data_status():
+    """
+    Check if TPC-H data files exist.
+    Returns detailed status about the data files.
+    """
+    try:
+        return check_tpch_data()
+    except Exception as e:
+        logger.error(f"Error checking data status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking data status: {str(e)}"
+        )
+
 @app.post("/benchmark/data/generate", response_model=DataGenerationResponse)
 async def generate_data(request: DataGenerationRequest):
     """
@@ -129,7 +183,7 @@ async def generate_data(request: DataGenerationRequest):
         force: If True, regenerate data even if it already exists
     """
     try:
-        data_dir = Path("/app/data")
+        data_dir = Path(DATA_DIR)
         
         # Generate data
         logger.info(f"Generating TPC-H data with scale factor {request.scale_factor}")

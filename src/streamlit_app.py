@@ -209,13 +209,18 @@ def load_queries() -> Optional[Dict]:
         response = requests.get(f"{API_BASE_URL}/queries")
         response.raise_for_status()
         data = response.json()
-        if data:
-            st.session_state.queries = data
+        if data and "queries" in data:
+            # Convert list of queries into dict {id: query_dict}
+            st.session_state.queries = {q["id"]: q for q in data["queries"]}
             st.session_state.queries_loaded = True
-        return data
+            return st.session_state.queries
+        else:
+            st.session_state.queries = {}
+            return {}
     except Exception as e:
         st.error(f"Error loading queries: {str(e)}")
         return None
+
 
 def load_engines() -> Optional[List[str]]:
     """Load engines from the API."""
@@ -275,7 +280,7 @@ def main():
                     result = generate_tpch_data(scale_factor=0.1, force=True)
                     if result.get("status") == "success":
                         st.success("✅ " + result["message"])
-                        st.rerun()
+                        st.experimental_rerun()
                     else:
                         st.error("❌ " + result.get("error", "Failed to regenerate data"))
         else:
@@ -285,7 +290,7 @@ def main():
                     result = generate_tpch_data(scale_factor=0.1)
                     if result.get("status") == "success":
                         st.success("✅ " + result["message"])
-                        st.rerun()
+                        st.experimental_rerun()
                     else:
                         st.error("❌ " + result.get("error", "Failed to generate data"))
         
@@ -335,7 +340,7 @@ def main():
             
             if benchmark_id:
                 st.session_state.current_benchmark = benchmark_id
-                st.rerun()
+                st.experimental_rerun()
     
     # Display benchmark results if available
     if "current_benchmark" in st.session_state:
