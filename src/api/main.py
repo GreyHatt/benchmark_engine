@@ -95,8 +95,6 @@ def check_tpch_data() -> DataStatusResponse:
 async def run_benchmark(request: BenchmarkRequest):
     """Execute a benchmark with the specified query and engine."""
     try:
-        logger.info(f"Running benchmark with engine: {request.engine}")
-        
         # Get the data directory and check if data exists
         data_dir = Path(DATA_DIR)
         if not data_dir.exists() or not any(data_dir.glob("*.tbl")):
@@ -105,9 +103,12 @@ async def run_benchmark(request: BenchmarkRequest):
                 detail="TPC-H data not found. Please generate the data first."
             )
             
-        query = request.query_id
-        if request.query_id.startswith("q") and request.query_id[1:].isdigit():
-            query = f"q{int(request.query_id[1:])}"
+        # Normalize query ID format (e.g., '1' -> 'q1')
+        query_id = request.query_id
+        if query_id.isdigit():
+            query_id = f"q{query_id}"
+        elif not query_id.startswith('q') and query_id[1:].isdigit():
+            query_id = f"q{query_id[1:] if query_id[0].lower() == 'q' else query_id}"
 
         # Initialize the query executor
         executor = QueryExecutorFactory.create_executor(
@@ -118,12 +119,17 @@ async def run_benchmark(request: BenchmarkRequest):
         # Execute the query
         with executor:
             result = executor.execute_query(
-                query_id=query,
+                query_id=query_id,
                 parameters=request.parameters or {},
                 validate=request.validate_results
             )
 
-        return result
+        # Convert the result to a dictionary for the response
+        result_dict = result.to_dict()
+        result_dict['query_id'] = query_id
+        result_dict['engine'] = request.engine
+        
+        return result_dict
 
     except Exception as e:
         logger.error(f"Error running benchmark: {str(e)}")

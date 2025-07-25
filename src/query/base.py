@@ -156,13 +156,15 @@ class BaseQueryExecutor(ABC):
         pass
         
     @abstractmethod
-    def execute_query(self, query: str, query_id: Optional[str] = None) -> QueryResult:
+    def execute_query(self, query_id: str, parameters: Optional[Dict[str, Any]] = None, 
+                     validate: bool = False) -> QueryResult:
         """
-        Execute a SQL query and return the result.
+        Execute a TPC-H query by ID with optional parameters and validation.
         
         Args:
-            query: The SQL query to execute
-            query_id: Optional identifier for the query (for logging)
+            query_id: The ID of the TPC-H query to execute (e.g., 'q1', 'q2')
+            parameters: Optional dictionary of parameter values to substitute in the query
+            validate: Whether to validate the query results
             
         Returns:
             QueryResult containing the execution results and metrics
