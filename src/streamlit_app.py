@@ -58,7 +58,7 @@ def run_benchmark(query_id: str, engine: str, validate_results: bool = True) -> 
             }
         )
         response.raise_for_status()
-        return response.json().get("benchmark_id")
+        return response.json()
     except requests.exceptions.RequestException as e:
         st.error(f"Error running benchmark: {str(e)}")
         return None
@@ -348,7 +348,7 @@ def main():
 
 def display_benchmark_results(benchmark_id: str) -> None:
     """Display detailed results for a benchmark."""
-    result = get_benchmark_status(benchmark_id)
+    result = st.session_state.current_benchmark
     if not result:
         st.error(f"Could not load results for benchmark {benchmark_id}")
         return

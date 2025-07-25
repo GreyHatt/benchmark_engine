@@ -41,6 +41,8 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
         # Set configuration options
         self.conn.execute("PRAGMA threads=4")
         self.conn.execute("PRAGMA enable_progress_bar=true")
+        self.conn.execute("CREATE SCHEMA IF NOT EXISTS tpch;")
+        self.conn.execute("SET search_path TO tpch;")
         
         # Initialize data loader
         self.data_loader = DuckDBDataLoader(self.conn, self.data_dir)
@@ -83,7 +85,7 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
             
             # Execute the query with parameters
             start_time = time.time()
-            cursor = self.conn.execute(query_template, parameters=final_params)
+            cursor = self.conn.execute(query_template)
             
             # Fetch all results
             rows = cursor.fetchall()
@@ -97,8 +99,8 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
             
             # Get query plan if available
             try:
-                plan = self.conn.execute(f"EXPLAIN {query_template}", parameters=final_params).fetchall()
-                result.query_plan = '\n'.join(str(row[0]) for row in plan)
+                plan = self.conn.execute(f"EXPLAIN {query_template}").fetchall()
+                result.query_plan = '\n'.join(str(row[1]) for row in plan)
             except Exception as e:
                 logger.warning(f"Could not get query plan: {str(e)}")
                 result.query_plan = "Query plan not available"

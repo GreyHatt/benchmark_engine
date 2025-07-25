@@ -141,7 +141,8 @@ async def run_benchmark(request: BenchmarkRequest):
             'comparison_metrics': result_dict.get('comparison_metrics'),
             'timestamp': datetime.utcnow().isoformat()
         }
-        
+        print("Response: ####################")
+        print(response)
         # If there was an error, include it in the response
         if not result_dict.get('success') and 'error' in result_dict:
             response['error'] = result_dict['error']
