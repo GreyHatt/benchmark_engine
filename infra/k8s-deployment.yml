@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: benchmark-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: benchmark-engine
+  template:
+    metadata:
+      labels:
+        app: benchmark-engine
+    spec:
+      containers:
+      - name: benchmark-engine
+        image: <IMAGE_TAG>
+        ports:
+        - containerPort: 8000
+          name: flask
+        - containerPort: 8501
+          name: streamlit
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: benchmark-engine
+spec:
+  type: LoadBalancer
+  selector:
+    app: benchmark-engine
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8000
+  - name: streamlit
+    protocol: TCP
+    port: 8501
+    targetPort: 8501

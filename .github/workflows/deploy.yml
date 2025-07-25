@@ -1,0 +1,57 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/k8s-deployment.yml'
+      - 'Dockerfile'
+      - '.github/workflows/deploy.yml'
+      - 'src/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infra/k8s-deployment.yml'
+      - 'Dockerfile'
+      - '.github/workflows/deploy.yml'
+      - 'src/**'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER_NAME }}
+  GKE_ZONE: ${{ secrets.GKE_ZONE }}
+  GKE_SA_KEY: ${{ secrets.GKE_SA_KEY }}
+  APP_NAME: benchmark-engine
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GKE_SA_KEY }}
+          export_default_credentials: true
+      - name: Configure Docker
+        run: gcloud auth configure-docker --quiet
+      - name: Build Docker image
+        run: docker build -t gcr.io/${{ env.PROJECT_ID }}/${{ env.APP_NAME }}:${GITHUB_SHA} .
+      - name: Push Docker image
+        run: docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.APP_NAME }}:${GITHUB_SHA}
+      - name: Get GKE Cluster
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_ZONE }}
+          credential: ${{ env.GKE_SA_KEY }}
+      - name: Deploy to GKE
+        run: |
+          sed -i "s|<IMAGE_TAG>|gcr.io/${{ env.PROJECT_ID }}/${{ env.APP_NAME }}:${GITHUB_SHA}|g" infra/k8s-deployment.yml
+          kubectl apply -f infra/k8s-deployment.yml
+          kubectl rollout status deployment/${{ env.APP_NAME }}
+      - name: Get External IP
+        run: kubectl get svc benchmark-engine
