@@ -45,8 +45,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def run_benchmark(query_id: str, engine: str, validate_results: bool = True) -> Optional[str]:
-    """Run a benchmark and return the benchmark ID."""
+def run_benchmark(query_id: str, engine: str, validate_results: bool = True) -> Optional[Dict]:
+    """Run a benchmark and return the results."""
     try:
         response = requests.post(
             f"{API_BASE_URL}/run",
@@ -54,13 +54,15 @@ def run_benchmark(query_id: str, engine: str, validate_results: bool = True) -> 
                 "query_id": query_id,
                 "engine": engine,
                 "validate_results": validate_results,
-                "execution_mode": "auto"
+                "parameters": {"1": "90"}  # Default parameter for Q1
             }
         )
         response.raise_for_status()
-        return response.json().get("benchmark_id")
+        return response.json()
     except requests.exceptions.RequestException as e:
         st.error(f"Error running benchmark: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            st.error(f"Response: {e.response.text}")
         return None
 
 def get_benchmark_status(benchmark_id: str) -> Optional[Dict]:
@@ -95,9 +97,9 @@ def display_validation_results(validation: Dict) -> None:
         
     with st.expander("Validation Results", expanded=True):
         if validation.get("passed"):
-            st.success("✅ Results validated successfully")
+            st.success("Results validated successfully")
         else:
-            st.error("❌ Validation failed")
+            st.error("Validation failed")
             
         if "errors" in validation and validation["errors"]:
             with st.container():
@@ -262,137 +264,38 @@ def check_data_exists() -> bool:
         pass
     return False
 
-def main():
-    """Main Streamlit application."""
-    st.title("📊 Big Data Benchmarking Engine")
-    
-    # Add data generation section to the sidebar
-    with st.sidebar:
-        st.header("TPC-H Data Management")
-        
-        # Check if data exists
-        data_exists = check_data_exists()
-        
-        if data_exists:
-            st.success("✅ TPC-H data is ready")
-            if st.button("🔁 Regenerate Data"):
-                with st.spinner("Regenerating TPC-H data (this may take a while)..."):
-                    result = generate_tpch_data(scale_factor=0.1, force=True)
-                    if result.get("status") == "success":
-                        st.success("✅ " + result["message"])
-                        st.experimental_rerun()
-                    else:
-                        st.error("❌ " + result.get("error", "Failed to regenerate data"))
-        else:
-            st.warning("⚠️ TPC-H data not found")
-            if st.button("🔧 Generate TPC-H Data"):
-                with st.spinner("Generating TPC-H data (this may take a while)..."):
-                    result = generate_tpch_data(scale_factor=0.1)
-                    if result.get("status") == "success":
-                        st.success("✅ " + result["message"])
-                        st.experimental_rerun()
-                    else:
-                        st.error("❌ " + result.get("error", "Failed to generate data"))
-        
-        st.markdown("---")
-        
-        # Benchmark configuration
-        st.header("Benchmark Configuration")
-        
-        # Load available queries and engines
-        if 'queries' not in st.session_state:
-            st.session_state.queries = {}
-        if 'engines' not in st.session_state:
-            st.session_state.engines = []
-            
-        # Load queries and engines
-        if st.button("🔄 Load Queries"):
-            st.session_state.queries = load_queries() or {}
-            st.session_state.engines = load_engines() or []
-        
-        # Query selection
-        query_id = st.selectbox(
-            "Select Query",
-            options=[""] + list(st.session_state.queries.keys()),
-            format_func=lambda x: st.session_state.queries.get(x, {}).get("name", x) if x else "Select a query"
-        )
-        
-        # Engine selection
-        engine = st.selectbox(
-            "Select Engine",
-            options=[""] + st.session_state.engines,
-            format_func=lambda x: x.capitalize() if x else "Select an engine"
-        )
-        
-        # Run benchmark button
-        run_benchmark_btn = st.button("▶️ Run Benchmark", 
-                                    disabled=not (query_id and engine),
-                                    type="primary")
-
-    # Main content area
-    if run_benchmark_btn and query_id and engine:
-        with st.spinner("Running benchmark..."):
-            benchmark_id = run_benchmark(
-                query_id=query_id,
-                engine=engine.lower(),
-                validate_results=True
-            )
-            
-            if benchmark_id:
-                st.session_state.current_benchmark = benchmark_id
-                st.experimental_rerun()
-    
-    # Display benchmark results if available
-    if "current_benchmark" in st.session_state:
-        display_benchmark_results(st.session_state.current_benchmark)
-
-def display_benchmark_results(benchmark_id: str) -> None:
-    """Display detailed results for a benchmark."""
-    result = get_benchmark_status(benchmark_id)
-    if not result:
-        st.error(f"Could not load results for benchmark {benchmark_id}")
+def display_benchmark_results(results: Dict) -> None:
+    """Display benchmark results."""
+    if not results:
+        st.warning("No results to display")
         return
     
-    status_emoji = "" if result.get("status") == "completed" else ""
-    st.header(f"{status_emoji} Benchmark Results")
+    st.subheader(f"Query {results.get('query_id', 'N/A')} Results")
     
+    # Display basic info
     col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Query", result.get("query_id", "N/A"))
-    with col2:
-        st.metric("Engine", result.get("engine", "N/A").upper())
-    with col3:
-        st.metric("Status", result.get("status", "unknown").capitalize())
+    col1.metric("Engine", results.get('engine', 'N/A'))
+    col2.metric("Status", results.get('status', 'N/A'))
+    col3.metric("Execution Time", f"{results.get('execution_time', 0):.4f} seconds")
     
-    if "execution_time" in result and result["execution_time"] is not None:
-        st.metric("Execution Time", f"{result['execution_time']:.4f} seconds")
+    # Display metrics if available
+    if 'metrics' in results and results['metrics']:
+        st.subheader("Execution Metrics")
+        st.json(results['metrics'])
     
-    if result.get("engine") == "hybrid":
-        st.write("### Hybrid Execution Results")
-        
-        if "comparison_metrics" in result:
-            display_comparison_metrics(result["comparison_metrics"])
-        
-        if "spark_result" in result:
-            with st.expander("Spark Execution Details", expanded=False):
-                display_engine_results(result["spark_result"])
-        
-        if "duckdb_result" in result:
-            with st.expander("DuckDB Execution Details", expanded=False):
-                display_engine_results(result["duckdb_result"])
-        
-        if "validation_result" in result:
-            display_validation_results(result["validation_result"])
-    else:
-        engine_result = result.get("spark_result") or result.get("duckdb_result")
-        if engine_result:
-            display_engine_results(engine_result)
-        
-        if "validation_result" in result:
-            display_validation_results(result["validation_result"])
+    # Display query plan if available
+    if 'query_plan' in results and results['query_plan']:
+        with st.expander("View Query Plan"):
+            st.code(results['query_plan'], language='sql')
     
-    with st.expander("Raw Results"):
-        st.json(result)
+    # Display result data if available
+    if 'result_data' in results and results['result_data']:
+        st.subheader("Query Results")
+        st.dataframe(results['result_data'])
+    
+    # Display validation results if available
+    if 'validation_result' in results and results['validation_result']:
+        display_validation_results(results['validation_result'])
 
 def display_engine_results(engine_result: Dict) -> None:
     """Display results for a specific engine."""
@@ -420,6 +323,66 @@ def display_engine_results(engine_result: Dict) -> None:
     if "query_plan" in engine_result and engine_result["query_plan"]:
         with st.expander("Query Plan"):
             st.code(engine_result["query_plan"], language="sql")
+
+def main():
+    """Main Streamlit application."""
+    st.title("Big Data Benchmarking Engine")
+    st.markdown("---")
+    
+    # Check if data exists
+    if not check_data_exists():
+        st.warning("TPC-H data not found. Please generate the data first.")
+        if st.button("Generate Sample Data"):
+            with st.spinner("Generating sample data (this may take a few minutes)..."):
+                result = generate_tpch_data(scale_factor=0.1)
+                if result and result.get("status") == "success":
+                    st.success("Data generated successfully!")
+                    st.rerun()
+        return
+    
+    # Load available queries and engines
+    queries = load_queries()
+    engines = load_engines()
+    
+    if not queries or not engines:
+        st.error("Failed to load queries or engines")
+        return
+    
+    # Sidebar for benchmark configuration
+    with st.sidebar:
+        st.header("Benchmark Configuration")
+        
+        # Query selection
+        selected_query = st.selectbox(
+            "Select Query",
+            options=list(queries.keys()),
+            format_func=lambda x: f"{x}: {queries[x]['name']}",  # type: ignore
+            index=0
+        )
+        
+        # Engine selection
+        selected_engine = st.selectbox(
+            "Select Engine",
+            options=engines,
+            index=0
+        )
+        
+        # Additional options
+        validate_results = st.checkbox("Validate Results", value=True)
+        
+        # Run benchmark button
+        if st.button("Run Benchmark", type="primary"):
+            with st.spinner("Running benchmark..."):
+                results = run_benchmark(selected_query, selected_engine, validate_results)
+                if results:
+                    st.session_state['last_results'] = results
+                    st.rerun()
+    
+    # Display results if available
+    if 'last_results' in st.session_state:
+        display_benchmark_results(st.session_state['last_results'])
+    else:
+        st.info("Configure and run a benchmark to see results")
 
 if __name__ == "__main__":
     main()
