@@ -41,8 +41,16 @@ class TpchDataGenerator:
             return {table: str(path) for table, path in table_files.items()}
             
         with tempfile.TemporaryDirectory() as tmp_dir:
-            self._build_dbgen(tmp_dir)
-            self._run_dbgen(tmp_dir)
+            try:
+                self._build_dbgen(tmp_dir)
+                self._run_dbgen(tmp_dir)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Error during data generation: {e}")
+                logger.error(f"Command: {e.cmd}")
+                logger.error(f"Return Code: {e.returncode}")
+                logger.error(f"Stdout: {e.stdout.decode() if e.stdout else 'None'}")
+                logger.error(f"Stderr: {e.stderr.decode() if e.stderr else 'None'}")
+                raise
             
         return self._move_generated_files()
     
@@ -58,12 +66,21 @@ class TpchDataGenerator:
         """Build the TPC-H dbgen tool."""
         logger.info("Building TPC-H dbgen tool...")
         
-        subprocess.run([
-            "git", "clone", "https://github.com/electrum/tpch-dbgen.git", tmp_dir
-        ], check=True)
+        subprocess.run(
+            ["git", "clone", "https://github.com/electrum/tpch-dbgen.git", tmp_dir],
+            check=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         
         make_cmd = ["make", "-C", tmp_dir, "-j", "4"]
-        subprocess.run(make_cmd, check=True)
+        try:
+            result = subprocess.run(make_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logger.info(f"Make command output: {result.stdout.decode()}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error during 'make' command: {e}")
+            logger.error(f"Stdout: {e.stdout.decode() if e.stdout else 'None'}")
+            logger.error(f"Stderr: {e.stderr.decode() if e.stderr else 'None'}")
+            raise
     
     def _run_dbgen(self, dbgen_dir: str) -> None:
         """Run the dbgen tool to generate data."""
@@ -79,7 +96,13 @@ class TpchDataGenerator:
             "-s", str(self.scale_factor)
         ]
         
-        subprocess.run(dbgen_cmd, cwd=dbgen_dir, env=env, check=True)
+        try:
+            subprocess.run(dbgen_cmd, cwd=dbgen_dir, env=env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error running dbgen: {e}")
+            logger.error(f"Stdout: {e.stdout.decode() if e.stdout else 'None'}")
+            logger.error(f"Stderr: {e.stderr.decode() if e.stderr else 'None'}")
+            raise
     
     def _move_generated_files(self) -> Dict[str, str]:
         """Move generated .tbl files to the data directory."""

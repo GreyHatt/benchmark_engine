@@ -45,7 +45,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def run_benchmark(query_id: str, engine: str, scale_factor: float = 1.0, parameters: Optional[Dict] = None) -> Optional[str]:
+def run_benchmark(query_id: str, engine: str, validate_results: bool = True) -> Optional[str]:
     """Run a benchmark and return the benchmark ID."""
     try:
         response = requests.post(
@@ -53,9 +53,7 @@ def run_benchmark(query_id: str, engine: str, scale_factor: float = 1.0, paramet
             json={
                 "query_id": query_id,
                 "engine": engine,
-                "scale_factor": scale_factor,
-                "parameters": parameters or {},
-                "validate_results": True,
+                "validate_results": validate_results,
                 "execution_mode": "auto"
             }
         )
@@ -261,15 +259,9 @@ def check_data_exists() -> bool:
 
 def main():
     """Main Streamlit application."""
-    st.title("Big Data Benchmarking Engine")
-    st.markdown("Compare query performance across different execution engines.")
+    st.title("📊 Big Data Benchmarking Engine")
     
-    # Initialize session state
-    if 'queries_loaded' not in st.session_state:
-        st.session_state.queries_loaded = False
-    if 'engines_loaded' not in st.session_state:
-        st.session_state.engines_loaded = False
-    
+    # Add data generation section to the sidebar
     with st.sidebar:
         st.header("TPC-H Data Management")
         
@@ -277,137 +269,77 @@ def main():
         data_exists = check_data_exists()
         
         if data_exists:
-            st.success("TPC-H data is ready")
-            if st.button("Regenerate Data"):
+            st.success("✅ TPC-H data is ready")
+            if st.button("🔁 Regenerate Data"):
                 with st.spinner("Regenerating TPC-H data (this may take a while)..."):
                     result = generate_tpch_data(scale_factor=0.1, force=True)
                     if result.get("status") == "success":
-                        st.success(result["message"])
+                        st.success("✅ " + result["message"])
                         st.rerun()
                     else:
-                        st.error(result.get("error", "Failed to regenerate data"))
+                        st.error("❌ " + result.get("error", "Failed to regenerate data"))
         else:
-            st.warning("TPC-H data not found")
-            if st.button("Generate TPC-H Data"):
+            st.warning("⚠️ TPC-H data not found")
+            if st.button("🔧 Generate TPC-H Data"):
                 with st.spinner("Generating TPC-H data (this may take a while)..."):
                     result = generate_tpch_data(scale_factor=0.1)
                     if result.get("status") == "success":
-                        st.success(result["message"])
+                        st.success("✅ " + result["message"])
                         st.rerun()
                     else:
-                        st.error(result.get("error", "Failed to generate data"))
+                        st.error("❌ " + result.get("error", "Failed to generate data"))
         
         st.markdown("---")
         
-        # Add load buttons with clear descriptions
-        if st.button("Load Queries (GET /queries)"):
-            load_queries()
+        # Benchmark configuration
+        st.header("Benchmark Configuration")
         
-        if st.button("Load Engines (GET /engines)"):
-            load_engines()
-        
-        st.markdown("---")
-        
-        # Check if both queries and engines are loaded
-        if not st.session_state.get('queries_loaded') or not st.session_state.get('engines_loaded'):
-            st.info("Please load both queries and engines to continue.")
-            return
+        # Load available queries and engines
+        if 'queries' not in st.session_state:
+            st.session_state.queries = {}
+        if 'engines' not in st.session_state:
+            st.session_state.engines = []
+            
+        # Load queries and engines
+        if st.button("🔄 Load Queries"):
+            st.session_state.queries = load_queries() or {}
+            st.session_state.engines = load_engines() or []
         
         # Query selection
-        queries_data = st.session_state.queries
-        if queries_data and "queries" in queries_data:
-            queries = queries_data["queries"]
-            query_options = {q["id"]: q.get("name", f"Query {q['id']}") for q in queries}
-            
-            st.markdown("""
-                <style>
-                    .stSelectbox div[data-baseweb="select"] {
-                        max-width: 100%;
-                    }
-                    .stSelectbox div[data-baseweb="select"] > div {
-                        white-space: normal;
-                        max-width: 100%;
-                    }
-                    .stSelectbox div[data-baseweb="select"] ul {
-                        max-width: 100%;
-                    }
-                    .stSelectbox div[data-baseweb="select"] li {
-                        white-space: normal;
-                        max-width: 100%;
-                    }
-                </style>
-            """, unsafe_allow_html=True)
-            
-            selected_query_id = st.selectbox(
-                "Select Query",
-                options=list(query_options.keys()),
-                format_func=lambda x: query_options[x],
-                help="Select a query to run"
-            )
-            
-            if selected_query_id:
-                query_info = next((q for q in queries if q["id"] == selected_query_id), None)
-                if query_info:
-                    st.write("**Query ID:**", query_info["id"])
-                    st.write("**Description:**", query_info.get("description", "No description"))
-                    
-                    if "parameters" in query_info and query_info["parameters"]:
-                        st.write("**Parameters:**")
-                        for param, default in query_info["parameters"].items():
-                            st.text_input(f"{param} (default: {default})", value=default)
-        else:
-            st.warning("No queries available. Please check the API connection and try again.")
-            return
+        query_id = st.selectbox(
+            "Select Query",
+            options=[""] + list(st.session_state.queries.keys()),
+            format_func=lambda x: st.session_state.queries.get(x, {}).get("name", x) if x else "Select a query"
+        )
         
         # Engine selection
-        engines = st.session_state.engines
-        if not engines:
-            st.error("Failed to load engines. Please check the API connection and try again.")
-            return
-            
-        selected_engine = st.selectbox("Execution Engine", engines)
-        
-        # Scale factor
-        scale_factor = st.slider(
-            "Scale Factor",
-            min_value=0.1,
-            max_value=10.0,
-            value=1.0,
-            step=0.1,
-            help="Scale factor for the benchmark data"
+        engine = st.selectbox(
+            "Select Engine",
+            options=[""] + st.session_state.engines,
+            format_func=lambda x: x.capitalize() if x else "Select an engine"
         )
         
         # Run benchmark button
-        if st.button("Run Benchmark", type="primary"):
-            with st.spinner("Running benchmark..."):
-                benchmark_id = run_benchmark(
-                    query_id=selected_query_id,
-                    engine=selected_engine,
-                    scale_factor=scale_factor
-                )
-                
-                if benchmark_id:
-                    if "benchmark_history" not in st.session_state:
-                        st.session_state.benchmark_history = []
-                    st.session_state.benchmark_history.insert(0, benchmark_id)
-                    st.session_state.current_benchmark = benchmark_id
-                    st.rerun()
+        run_benchmark_btn = st.button("▶️ Run Benchmark", 
+                                    disabled=not (query_id and engine),
+                                    type="primary")
+
+    # Main content area
+    if run_benchmark_btn and query_id and engine:
+        with st.spinner("Running benchmark..."):
+            benchmark_id = run_benchmark(
+                query_id=query_id,
+                engine=engine.lower(),
+                validate_results=True
+            )
+            
+            if benchmark_id:
+                st.session_state.current_benchmark = benchmark_id
+                st.rerun()
     
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        if "current_benchmark" in st.session_state:
-            display_benchmark_results(st.session_state.current_benchmark)
-        else:
-            st.info("Configure and run a benchmark to see results.")
-    
-    with col2:
-        if "benchmark_history" in st.session_state and st.session_state.benchmark_history:
-            st.write("### Recent Benchmarks")
-            for bid in st.session_state.benchmark_history[:5]:
-                if st.button(f"Benchmark: {bid[:8]}...", key=f"btn_{bid}"):
-                    st.session_state.current_benchmark = bid
-                    st.rerun()
+    # Display benchmark results if available
+    if "current_benchmark" in st.session_state:
+        display_benchmark_results(st.session_state.current_benchmark)
 
 def display_benchmark_results(benchmark_id: str) -> None:
     """Display detailed results for a benchmark."""
