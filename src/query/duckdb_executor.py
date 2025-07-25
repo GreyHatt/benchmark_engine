@@ -4,9 +4,9 @@ import duckdb
 import logging
 import time
 import json
-
 from .base import BaseQueryExecutor, QueryResult
 from .tpch_queries import get_query, get_query_parameters
+from .metrics import MetricsCollector
 from src.data.loader import DuckDBDataLoader
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
         self.conn: Optional[duckdb.DuckDBPyConnection] = None
         self.data_loader: Optional[DuckDBDataLoader] = None
         self.tables: Dict[str, str] = {}
+        self.metrics_collector = MetricsCollector()
     
     def initialize(self) -> None:
         """Initialize the DuckDB connection and load TPC-H data."""
@@ -82,6 +83,8 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
             
             # Log the query being executed
             logger.info(f"Executing TPC-H query {query_id} with parameters: {final_params}")
+
+            self.metrics_collector.start()
             
             # Execute the query with parameters
             start_time = time.time()
@@ -90,12 +93,15 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
             # Fetch all results
             rows = cursor.fetchall()
             execution_time = time.time() - start_time
+
+            system_metrics = self.metrics_collector.stop()
             
             # Populate the result object
             result.execution_time = execution_time
             result.rows_returned = len(rows)
             result.result_data = rows
             result.success = True
+            result.metrics = MetricsCollector.analyze_metrics(system_metrics)
             
             # Get query plan if available
             try:

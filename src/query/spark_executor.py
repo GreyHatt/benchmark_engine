@@ -9,6 +9,7 @@ from pyspark.sql.types import StructType, StructField, StringType, IntegerType, 
 
 from .base import BaseQueryExecutor, QueryResult
 from .tpch_queries import get_query, get_query_parameters
+from .metrics import MetricsCollector
 from src.data.loader import SparkDataLoader
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class SparkQueryExecutor(BaseQueryExecutor):
         self.spark: Optional[SparkSession] = None
         self.data_loader: Optional[SparkDataLoader] = None
         self.tables: Dict[str, DataFrame] = {}
+        self.metrics_collector = MetricsCollector()
     
     def initialize(self) -> None:
         """Initialize the PySpark session in local mode and load TPC-H data."""
@@ -97,6 +99,8 @@ class SparkQueryExecutor(BaseQueryExecutor):
             # Register temp views for all tables
             for table_name, df in self.tables.items():
                 df.createOrReplaceTempView(table_name)
+
+            self.metrics_collector.start()
             
             # Execute the query with parameters
             start_time = time.time()
@@ -113,6 +117,8 @@ class SparkQueryExecutor(BaseQueryExecutor):
             # Force execution and collect results
             rows = df.collect()
             execution_time = time.time() - start_time
+
+            system_metrics = self.metrics_collector.stop()
             
             # Convert rows to list of dictionaries for serialization
             result_data = [row.asDict() for row in rows]
@@ -122,6 +128,7 @@ class SparkQueryExecutor(BaseQueryExecutor):
             result.rows_returned = len(rows)
             result.result_data = result_data
             result.success = True
+            result.metrics = MetricsCollector.analyze_metrics(system_metrics)
             
             # Get query plan if available
             try:
