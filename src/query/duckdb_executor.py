@@ -100,7 +100,7 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
             # Get query plan if available
             try:
                 plan = self.conn.execute(f"EXPLAIN {query_template}").fetchall()
-                result.query_plan = '\n'.join(str(row[0]) for row in plan)
+                result.query_plan = '\n'.join(str(row[1]) for row in plan)
             except Exception as e:
                 logger.warning(f"Could not get query plan: {str(e)}")
                 result.query_plan = "Query plan not available"
