@@ -233,6 +233,32 @@ def load_engines() -> Optional[List[str]]:
         st.error(f"Error loading engines: {str(e)}")
         return None
 
+def generate_tpch_data(scale_factor: float = 0.1, force: bool = False) -> Dict:
+    """Trigger TPC-H data generation via the API."""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/data/generate",
+            json={
+                "scale_factor": scale_factor,
+                "force": force
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error generating TPC-H data: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+def check_data_exists() -> bool:
+    """Check if TPC-H data files exist."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/data/status")
+        if response.status_code == 200:
+            return response.json().get("data_exists", False)
+    except:
+        pass
+    return False
+
 def main():
     """Main Streamlit application."""
     st.title("Big Data Benchmarking Engine")
@@ -245,7 +271,33 @@ def main():
         st.session_state.engines_loaded = False
     
     with st.sidebar:
-        st.header("Benchmark Configuration")
+        st.header("TPC-H Data Management")
+        
+        # Check if data exists
+        data_exists = check_data_exists()
+        
+        if data_exists:
+            st.success("TPC-H data is ready")
+            if st.button("Regenerate Data"):
+                with st.spinner("Regenerating TPC-H data (this may take a while)..."):
+                    result = generate_tpch_data(scale_factor=0.1, force=True)
+                    if result.get("status") == "success":
+                        st.success(result["message"])
+                        st.rerun()
+                    else:
+                        st.error(result.get("error", "Failed to regenerate data"))
+        else:
+            st.warning("TPC-H data not found")
+            if st.button("Generate TPC-H Data"):
+                with st.spinner("Generating TPC-H data (this may take a while)..."):
+                    result = generate_tpch_data(scale_factor=0.1)
+                    if result.get("status") == "success":
+                        st.success(result["message"])
+                        st.rerun()
+                    else:
+                        st.error(result.get("error", "Failed to generate data"))
+        
+        st.markdown("---")
         
         # Add load buttons with clear descriptions
         if st.button("Load Queries (GET /queries)"):
@@ -364,7 +416,7 @@ def display_benchmark_results(benchmark_id: str) -> None:
         st.error(f"Could not load results for benchmark {benchmark_id}")
         return
     
-    status_emoji = "✅" if result.get("status") == "completed" else "⏳"
+    status_emoji = "" if result.get("status") == "completed" else ""
     st.header(f"{status_emoji} Benchmark Results")
     
     col1, col2, col3 = st.columns(3)

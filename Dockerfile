@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     procps \
+    build-essential \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
@@ -33,6 +35,8 @@ RUN apt-get remove -y gcc python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY . .
+
+RUN mkdir -p /app/data
 
 EXPOSE 8000 8501
 
