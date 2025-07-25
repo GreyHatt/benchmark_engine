@@ -74,19 +74,39 @@ def get_benchmark_status(benchmark_id: str) -> Optional[Dict]:
         return None
 
 def display_metrics(metrics: Dict, title: str = "Metrics") -> None:
-    """Display metrics in a card."""
+    """Display metrics in a card.
+    
+    Args:
+        metrics: Dictionary of metrics to display
+        title: Title for the metrics section
+    """
     if not metrics:
         return
         
-    with st.expander(title):
-        cols = st.columns(3)
-        for i, (key, value) in enumerate(metrics.items()):
-            if isinstance(value, (int, float)):
-                cols[i % 3].metric(key, f"{value:.4f}" if isinstance(value, float) else value)
-            elif isinstance(value, dict):
-                display_metrics(value, key)
+    st.subheader(title)
+    
+    # Create a list to hold all metrics (flattened)
+    flat_metrics = []
+    
+    # Flatten nested metrics
+    def flatten_metrics(metrics_dict: Dict, prefix: str = '') -> None:
+        for key, value in metrics_dict.items():
+            full_key = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                flatten_metrics(value, full_key)
             else:
-                cols[i % 3].text(f"{key}: {value}")
+                flat_metrics.append((full_key, value))
+    
+    flatten_metrics(metrics)
+    
+    # Display metrics in columns
+    cols = st.columns(3)
+    for i, (key, value) in enumerate(flat_metrics):
+        with cols[i % 3]:
+            if isinstance(value, (int, float)):
+                st.metric(key, f"{value:.4f}" if isinstance(value, float) else value)
+            else:
+                st.text(f"{key}: {value}")
 
 def display_validation_results(validation: Dict) -> None:
     """Display validation results."""
