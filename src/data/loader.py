@@ -151,12 +151,12 @@ class DuckDBDataLoader(DataLoader):
                 raise FileNotFoundError(f"TPC-H data file not found: {file_path}")
                 
             self.conn.execute(f"""
-                COPY {table} FROM '{file_path}' 
+                COPY tpch.{table} FROM '{file_path}' 
                 WITH (DELIMITER '|', FORMAT 'csv', HEADER false)
             """)
             
-            tables[table] = self.conn.table(table)
-            count = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            tables[table] = self.conn.table(f"tpch.{table}")
+            count = self.conn.execute(f"SELECT COUNT(*) FROM tpch.{table}").fetchone()[0]
             logger.info(f"Loaded table: {table} with {count:,} rows")
             
         return tables
@@ -166,25 +166,21 @@ class DuckDBDataLoader(DataLoader):
         self.conn.execute("""
             CREATE SCHEMA IF NOT EXISTS tpch;
             SET search_path TO tpch;
-            
-            -- Region table
-            CREATE TABLE IF NOT EXISTS region (
+
+            CREATE TABLE IF NOT EXISTS tpch.region (
                 r_regionkey INTEGER PRIMARY KEY,
                 r_name     CHAR(25) NOT NULL,
                 r_comment  VARCHAR(152)
             );
-            
-            -- Nation table
-            CREATE TABLE IF NOT EXISTS nation (
+
+            CREATE TABLE IF NOT EXISTS tpch.nation (
                 n_nationkey  INTEGER PRIMARY KEY,
                 n_name      CHAR(25) NOT NULL,
                 n_regionkey INTEGER NOT NULL,
-                n_comment   VARCHAR(152),
-                FOREIGN KEY (n_regionkey) REFERENCES region(r_regionkey)
+                n_comment   VARCHAR(152)
             );
-            
-            -- Part table
-            CREATE TABLE IF NOT EXISTS part (
+
+            CREATE TABLE IF NOT EXISTS tpch.part (
                 p_partkey     BIGINT PRIMARY KEY,
                 p_name        VARCHAR(55) NOT NULL,
                 p_mfgr        CHAR(25) NOT NULL,
@@ -195,33 +191,27 @@ class DuckDBDataLoader(DataLoader):
                 p_retailprice DECIMAL(15,2) NOT NULL,
                 p_comment     VARCHAR(23) NOT NULL
             );
-            
-            -- Supplier table
-            CREATE TABLE IF NOT EXISTS supplier (
+
+            CREATE TABLE IF NOT EXISTS tpch.supplier (
                 s_suppkey     BIGINT PRIMARY KEY,
                 s_name        CHAR(25) NOT NULL,
                 s_address     VARCHAR(40) NOT NULL,
                 s_nationkey   INTEGER NOT NULL,
                 s_phone       CHAR(15) NOT NULL,
                 s_acctbal     DECIMAL(15,2) NOT NULL,
-                s_comment     VARCHAR(101) NOT NULL,
-                FOREIGN KEY (s_nationkey) REFERENCES nation(n_nationkey)
+                s_comment     VARCHAR(101) NOT NULL
             );
-            
-            -- Partsupp table
-            CREATE TABLE IF NOT EXISTS partsupp (
+
+            CREATE TABLE IF NOT EXISTS tpch.partsupp (
                 ps_partkey     BIGINT NOT NULL,
                 ps_suppkey     BIGINT NOT NULL,
                 ps_availqty    INTEGER NOT NULL,
                 ps_supplycost  DECIMAL(15,2) NOT NULL,
                 ps_comment     VARCHAR(199) NOT NULL,
-                PRIMARY KEY (ps_partkey, ps_suppkey),
-                FOREIGN KEY (ps_partkey) REFERENCES part(p_partkey),
-                FOREIGN KEY (ps_suppkey) REFERENCES supplier(s_suppkey)
+                PRIMARY KEY (ps_partkey, ps_suppkey)
             );
-            
-            -- Customer table
-            CREATE TABLE IF NOT EXISTS customer (
+
+            CREATE TABLE IF NOT EXISTS tpch.customer (
                 c_custkey     BIGINT PRIMARY KEY,
                 c_name        VARCHAR(25) NOT NULL,
                 c_address     VARCHAR(40) NOT NULL,
@@ -229,12 +219,10 @@ class DuckDBDataLoader(DataLoader):
                 c_phone       CHAR(15) NOT NULL,
                 c_acctbal     DECIMAL(15,2) NOT NULL,
                 c_mktsegment  CHAR(10) NOT NULL,
-                c_comment     VARCHAR(117) NOT NULL,
-                FOREIGN KEY (c_nationkey) REFERENCES nation(n_nationkey)
+                c_comment     VARCHAR(117) NOT NULL
             );
-            
-            -- Orders table
-            CREATE TABLE IF NOT EXISTS orders (
+
+            CREATE TABLE IF NOT EXISTS tpch.orders (
                 o_orderkey       BIGINT PRIMARY KEY,
                 o_custkey        BIGINT NOT NULL,
                 o_orderstatus    CHAR(1) NOT NULL,
@@ -243,12 +231,10 @@ class DuckDBDataLoader(DataLoader):
                 o_orderpriority  CHAR(15) NOT NULL,
                 o_clerk          CHAR(15) NOT NULL,
                 o_shippriority   INTEGER NOT NULL,
-                o_comment        VARCHAR(79) NOT NULL,
-                FOREIGN KEY (o_custkey) REFERENCES customer(c_custkey)
+                o_comment        VARCHAR(79) NOT NULL
             );
-            
-            -- Lineitem table
-            CREATE TABLE IF NOT EXISTS lineitem (
+
+            CREATE TABLE IF NOT EXISTS tpch.lineitem (
                 l_orderkey      BIGINT NOT NULL,
                 l_partkey       BIGINT NOT NULL,
                 l_suppkey       BIGINT NOT NULL,
@@ -265,20 +251,8 @@ class DuckDBDataLoader(DataLoader):
                 l_shipinstruct  CHAR(25) NOT NULL,
                 l_shipmode      CHAR(10) NOT NULL,
                 l_comment       VARCHAR(44) NOT NULL,
-                PRIMARY KEY (l_orderkey, l_linenumber),
-                FOREIGN KEY (l_orderkey) REFERENCES orders(o_orderkey),
-                FOREIGN KEY (l_partkey, l_suppkey) REFERENCES partsupp(ps_partkey, ps_suppkey)
+                PRIMARY KEY (l_orderkey, l_linenumber)
             );
-            
-            -- Create indexes for better query performance
-            CREATE INDEX IF NOT EXISTS idx_lineitem_orderkey ON lineitem(l_orderkey);
-            CREATE INDEX IF NOT EXISTS idx_lineitem_partkey ON lineitem(l_partkey);
-            CREATE INDEX IF NOT EXISTS idx_lineitem_suppkey ON lineitem(l_suppkey);
-            CREATE INDEX IF NOT EXISTS idx_orders_custkey ON orders(o_custkey);
-            CREATE INDEX IF NOT EXISTS idx_customer_nationkey ON customer(c_nationkey);
-            CREATE INDEX IF NOT EXISTS idx_supplier_nationkey ON supplier(s_nationkey);
-            CREATE INDEX IF NOT EXISTS idx_partsupp_partkey ON partsupp(ps_partkey);
-            CREATE INDEX IF NOT EXISTS idx_partsupp_suppkey ON partsupp(ps_suppkey);
         """)
         
     def close(self) -> None:
