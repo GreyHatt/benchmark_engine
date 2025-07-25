@@ -5,12 +5,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gcc \
     python3-dev \
+    procps \
     && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
 
 ENV PYTHONUNBUFFERED=1 \
     PYSPARK_PYTHON=python3 \
     PYSPARK_DRIVER_PYTHON=python3 \
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    SPARK_HOME=/usr/local/lib/python3.9/site-packages/pyspark \
+    PYTHONPATH=${SPARK_HOME}/python:${SPARK_HOME}/python/lib/py4j-0.10.9.7-src.zip:${PYTHONPATH} \
     STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
     STREAMLIT_SERVER_HEADLESS=true \
@@ -18,11 +23,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN mkdir -p /app/data
-
 COPY requirements.txt .
 
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 RUN apt-get remove -y gcc python3-dev && \
     apt-get autoremove -y && \
@@ -32,4 +36,4 @@ COPY . .
 
 EXPOSE 8000 8501
 
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn src.api.main:app --host 0.0.0.0 --port 8000 & streamlit run src/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"]

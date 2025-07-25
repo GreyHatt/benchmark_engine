@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Optional, Union
 from src.query.factory import QueryExecutorFactory
 from src.query.tpch_queries import get_query, get_all_queries
 import json
+import logging
+import traceback
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="TPC-H Benchmark API",
@@ -14,14 +19,14 @@ app = FastAPI(
 )
 
 class BenchmarkRequest(BaseModel):
-    query_name: str
+    query_id: str
     engine: str
     scale_factor: float = 1.0
     parameters: Optional[Dict[str, Any]] = None
     validate_results: bool = False
 
 class BenchmarkResult(BaseModel):
-    query: str
+    query_id: str
     engine: str
     execution_time: float
     status: str
@@ -33,27 +38,23 @@ class BenchmarkResult(BaseModel):
     validation_result: Optional[Dict[str, Any]] = None
     comparison_metrics: Optional[Dict[str, Any]] = None
 
-# Add this near the top of the file
 DATA_DIR = Path("./.data")
 
-# Update the run_benchmark endpoint
 @app.post("/benchmark/run", response_model=BenchmarkResult)
 async def run_benchmark(request: BenchmarkRequest):
     """Execute a benchmark with the specified query and engine."""
     try:
         logger.info(f"Running benchmark with engine: {request.engine}")
         
-        # Get the query (support both direct SQL and TPC-H query IDs)
-        query = request.query
-        if request.query.startswith("q") and request.query[1:].isdigit():
-            query = get_query(request.query)
+        query = request.query_id
+        if request.query_id.startswith("q") and request.query_id[1:].isdigit():
+            query = get_query(request.query_id)
             if not query:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Query {request.query} not found"
+                    detail=f"Query {request.query_id} not found"
                 )
         
-        # Initialize the appropriate executor
         factory = QueryExecutorFactory()
         
         if request.engine.lower() == 'hybrid':
@@ -69,11 +70,9 @@ async def run_benchmark(request: BenchmarkRequest):
                 app_name=f"TPC-H Benchmark ({request.engine})"
             )
         
-        # Execute the query
         with executor:
-            result = executor.execute_query(query, request.query)
+            result = executor.execute_query(query, request.query_id)
             
-            # For hybrid mode, add validation results
             if request.engine.lower() == 'hybrid' and result.spark and result.duckdb:
                 validation_result = {
                     "spark_time": result.spark.execution_time,
@@ -82,7 +81,6 @@ async def run_benchmark(request: BenchmarkRequest):
                     "speedup": result.metrics.get('speedup', 1.0)
                 }
                 
-                # Add validation details if both executions were successful
                 if result.spark.success and result.duckdb.success:
                     is_valid = result.spark.validate_results(result.duckdb)
                     validation_result.update({
@@ -92,9 +90,8 @@ async def run_benchmark(request: BenchmarkRequest):
                 
                 result.metrics["comparison"] = validation_result
             
-            # Prepare the response
             return BenchmarkResult(
-                query=request.query,
+                query_id=request.query_id,
                 engine=request.engine,
                 execution_time=result.execution_time,
                 status="success" if result.success else "error",
@@ -117,22 +114,27 @@ async def run_benchmark(request: BenchmarkRequest):
             }
         )
 
-# Update the list_available_queries endpoint
 @app.get("/benchmark/queries")
 async def list_available_queries():
     """List all available TPC-H benchmark queries."""
     queries = get_all_queries()
-    return {
-        "queries": [
-            {
-                "id": qid,
-                "name": q.split('\n')[0].strip('-- ').strip(),
-                "description": '\n'.join(
-                    line.strip('-- ') 
-                    for line in q.split('\n')[1:] 
-                    if line.strip().startswith('--')
-                ).strip()
-            }
-            for qid, q in queries.items()
-        ]
-    }
+    result = []
+    for qid, query in queries.items():
+        lines = query.split('\n')
+        name = lines[0].strip('-- ').strip() if lines[0].startswith('--') else qid
+        description = '\n'.join(
+            line.strip('--').strip()
+            for line in lines[1:]
+            if line.strip().startswith('--')
+        )
+        result.append({
+            "id": qid,
+            "name": name,
+            "description": description or "No description available"
+        })
+    return {"queries": result}
+
+@app.get("/benchmark/engines")
+async def list_engines():
+    """List all available query engines."""
+    return ["spark", "duckdb", "hybrid"]
