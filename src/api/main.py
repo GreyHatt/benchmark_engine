@@ -124,13 +124,32 @@ async def run_benchmark(request: BenchmarkRequest):
                 validate=request.validate_results
             )
 
-        # Convert the result to a dictionary for the response
+        # Convert the result to a dictionary
         result_dict = result.to_dict()
-        result_dict['query_id'] = query_id
-        result_dict['engine'] = request.engine
         
-        return result_dict
+        # Create the response with all required fields
+        response = {
+            'query_id': query_id,
+            'engine': request.engine,
+            'execution_time': result_dict.get('execution_time', 0),
+            'status': 'success' if result_dict.get('success') else 'error',
+            'metrics': result_dict.get('metrics', {}),
+            'result_validation': result_dict.get('validation_result'),
+            'spark_result': result_dict if request.engine == 'spark' else None,
+            'duckdb_result': result_dict if request.engine == 'duckdb' else None,
+            'validation_result': result_dict.get('validation_result'),
+            'comparison_metrics': result_dict.get('comparison_metrics'),
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        # If there was an error, include it in the response
+        if not result_dict.get('success') and 'error' in result_dict:
+            response['error'] = result_dict['error']
+        
+        return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error running benchmark: {str(e)}")
         logger.error(traceback.format_exc())
