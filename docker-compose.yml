@@ -9,6 +9,7 @@ services:
       - "8501:8501"  # Streamlit UI
     volumes:
       - .:/app
+      - benchmark_data:/app/data
     environment:
       - API_URL=http://localhost:8000
       - SPARK_HOME=/usr/local/lib/python3.9/site-packages/pyspark
@@ -31,3 +32,6 @@ services:
 networks:
   benchmark-network:
     driver: bridge
+
+volumes:
+  benchmark_data:

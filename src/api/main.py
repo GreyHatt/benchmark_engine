@@ -1,13 +1,15 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pathlib import Path
 from datetime import datetime
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional, Union
 from src.query.factory import QueryExecutorFactory
 from src.query.tpch_queries import get_query, get_all_queries
+from src.data.generator import generate_tpch_data
 import json
 import logging
 import traceback
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,6 +39,17 @@ class BenchmarkResult(BaseModel):
     duckdb_result: Optional[Dict[str, Any]] = None
     validation_result: Optional[Dict[str, Any]] = None
     comparison_metrics: Optional[Dict[str, Any]] = None
+
+class DataGenerationRequest(BaseModel):
+    scale_factor: float = 1.0
+    force: bool = False
+
+class DataGenerationResponse(BaseModel):
+    status: str
+    message: str
+    output_dir: Optional[str] = None
+    generated_files: Optional[List[str]] = None
+    error: Optional[str] = None
 
 DATA_DIR = Path("./.data")
 
@@ -138,3 +151,45 @@ async def list_available_queries():
 async def list_engines():
     """List all available query engines."""
     return ["spark", "duckdb", "hybrid"]
+
+@app.post("/data/generate", response_model=DataGenerationResponse)
+async def generate_data(request: DataGenerationRequest):
+    """
+    Generate TPC-H benchmark data with the specified scale factor.
+    
+    Args:
+        scale_factor: Scale factor for data generation (default: 1.0)
+        force: If True, regenerate data even if it already exists
+    """
+    try:
+        # Ensure data directory exists
+        data_dir = Path("./data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate data
+        logger.info(f"Generating TPC-H data with scale factor {request.scale_factor}")
+        result = generate_tpch_data(
+            scale_factor=request.scale_factor,
+            data_dir=str(data_dir.absolute()),
+            force=request.force
+        )
+        
+        # Get list of generated files
+        generated_files = [str(f) for f in data_dir.glob("*.tbl")]
+        
+        return DataGenerationResponse(
+            status="success",
+            message=f"Successfully generated TPC-H data (scale factor: {request.scale_factor})",
+            output_dir=str(data_dir.absolute()),
+            generated_files=generated_files
+        )
+        
+    except Exception as e:
+        error_msg = f"Error generating TPC-H data: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return DataGenerationResponse(
+            status="error",
+            message="Failed to generate TPC-H data",
+            error=error_msg
+        )
