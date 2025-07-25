@@ -31,7 +31,7 @@ class QueryResult:
         
         # For result validation
         self.validation_passed: Optional[bool] = None
-        self.validation_errors: List[str] = field(default_factory=list)
+        self.validation_errors: List[str] = []  
         
         # System metrics
         self.system_metrics: Optional[Dict[str, Any]] = None
@@ -44,24 +44,18 @@ class QueryResult:
             'success': self.success,
             'metrics': self.metrics,
             'validation_passed': self.validation_passed,
-            'validation_errors': self.validation_errors,
-            'system_metrics': self.system_metrics
+            'validation_errors': self.validation_errors,  
+            'system_metrics': self.system_metrics,
+            'query_plan': self.query_plan,
+            'error': self.error,
+            'has_result_data': self.result_data is not None
         }
         
-        if self.error:
-            result['error'] = self.error
-            
-        if self.query_plan:
-            result['query_plan'] = self.query_plan
-            
-        if self.result_data is not None:
-            result['has_result_data'] = True
-            
-        # Handle nested results in hybrid mode
+        # Add engine-specific results if they exist
         if self.spark:
-            result['spark'] = self.spark.to_dict()
+            result['spark_result'] = self.spark.to_dict()
         if self.duckdb:
-            result['duckdb'] = self.duckdb.to_dict()
+            result['duckdb_result'] = self.duckdb.to_dict()
             
         return result
     
