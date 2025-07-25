@@ -6,6 +6,7 @@ import time
 import json
 
 from .base import BaseQueryExecutor, QueryResult
+from .tpch_queries import get_query, get_query_parameters
 from src.data.loader import DuckDBDataLoader
 
 logger = logging.getLogger(__name__)
@@ -51,55 +52,64 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
         self.initialized = True
         logger.info("DuckDB query executor initialized successfully")
     
-    def execute_query(self, query: str, query_id: Optional[str] = None) -> QueryResult:
+    def execute_query(self, query_id: str, parameters: Optional[Dict[str, Any]] = None, 
+                     validate: bool = False) -> QueryResult:
         """
-        Execute a SQL query using DuckDB.
+        Execute a TPC-H query by ID with the given parameters.
         
         Args:
-            query: SQL query to execute
-            query_id: Optional identifier for the query (e.g., 'q1', 'q2')
+            query_id: The ID of the TPC-H query to execute (e.g., 'q1', 'q2')
+            parameters: Dictionary of parameter values to substitute in the query
+            validate: Whether to validate the query results (not implemented yet)
             
         Returns:
-            QueryResult object containing execution results and metrics
+            QueryResult containing the execution results and metrics
         """
         if not self.initialized:
             self.initialize()
             
-        result = QueryResult()
+        result = self._create_result()
         
         try:
-            # Execute query and time it
-            logger.info(f"Executing query {query_id or ''} on DuckDB")
+            # Get the query template and merge with default parameters
+            query_template = get_query(query_id)
+            default_params = get_query_parameters(query_id)
             
-            # Get query execution plan
-            plan = self.conn.sql(f"EXPLAIN {query}").fetchall()
-            result.query_plan = "\n".join([str(row[0]) for row in plan])
+            # Merge default parameters with provided ones (provided ones take precedence)
+            final_params = {**default_params, **(parameters or {})}
             
-            # Execute query and measure time
-            def execute():
-                return self.conn.sql(query).fetchall()
-                
-            query_result, execution_time = self._time_execution(execute)
+            # Log the query being executed
+            logger.info(f"Executing TPC-H query {query_id} with parameters: {final_params}")
             
-            # Populate result
+            # Execute the query with parameters
+            start_time = time.time()
+            cursor = self.conn.execute(query_template, parameters=final_params)
+            
+            # Fetch all results
+            rows = cursor.fetchall()
+            execution_time = time.time() - start_time
+            
+            # Populate the result object
             result.execution_time = execution_time
-            result.rows_returned = len(query_result)
-            result.result_data = query_result
+            result.rows_returned = len(rows)
+            result.result_data = rows
             result.success = True
             
-            # Add DuckDB config info
-            config = self.conn.sql("SELECT * FROM duckdb_settings()").fetchall()
-            result.metrics['duckdb_config'] = {
-                setting[0]: setting[1] for setting in config
-            }
+            # Get query plan if available
+            try:
+                plan = self.conn.execute(f"EXPLAIN {query_template}", parameters=final_params).fetchall()
+                result.query_plan = '\n'.join(str(row[0]) for row in plan)
+            except Exception as e:
+                logger.warning(f"Could not get query plan: {str(e)}")
+                result.query_plan = "Query plan not available"
             
-            logger.info(f"Query executed in {execution_time:.2f} seconds, returned {result.rows_returned} rows")
+            logger.info(f"Query {query_id} executed in {execution_time:.4f} seconds, returned {len(rows)} rows")
             
         except Exception as e:
-            error_msg = f"Error executing query on DuckDB: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            result.success = False
+            error_msg = f"Error executing query {query_id}: {str(e)}"
+            logger.error(error_msg)
             result.error = error_msg
+            result.success = False
             
         return result
     
@@ -124,3 +134,6 @@ class DuckDBQueryExecutor(BaseQueryExecutor):
         result = func()
         execution_time = time.time() - start_time
         return result, execution_time
+    
+    def _create_result(self) -> QueryResult:
+        return QueryResult()
